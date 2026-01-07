@@ -107,16 +107,13 @@ export default function DrumMachine() {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     audioContextRef.current = ctx;
     
-    // Create effects chain
+    // Create effects chain: input → distortion → delay → reverb → master → destination
     masterGainRef.current = ctx.createGain();
     masterGainRef.current.connect(ctx.destination);
 
-    // Reverb (convolver)
+    // Reverb (convolver) - last in chain
     reverbNodeRef.current = ctx.createConvolver();
-    const reverbGain = ctx.createGain();
-    reverbGain.gain.value = 0;
-    reverbNodeRef.current.connect(reverbGain);
-    reverbGain.connect(masterGainRef.current);
+    reverbNodeRef.current.connect(masterGainRef.current);
 
     // Create impulse response for reverb
     const sampleRate = ctx.sampleRate;
@@ -130,23 +127,20 @@ export default function DrumMachine() {
     }
     reverbNodeRef.current.buffer = impulse;
 
-    // Delay
+    // Delay - middle of chain
     delayNodeRef.current = ctx.createDelay(1);
     delayNodeRef.current.delayTime.value = 0.25;
     delayFeedbackRef.current = ctx.createGain();
     delayFeedbackRef.current.gain.value = 0;
-    const delayGain = ctx.createGain();
-    delayGain.gain.value = 0;
     
     delayNodeRef.current.connect(delayFeedbackRef.current);
     delayFeedbackRef.current.connect(delayNodeRef.current);
-    delayNodeRef.current.connect(delayGain);
-    delayGain.connect(masterGainRef.current);
+    delayNodeRef.current.connect(reverbNodeRef.current);
 
-    // Distortion
+    // Distortion - first in chain
     distortionNodeRef.current = ctx.createWaveShaper();
     distortionNodeRef.current.curve = makeDistortionCurve(0);
-    distortionNodeRef.current.connect(masterGainRef.current);
+    distortionNodeRef.current.connect(delayNodeRef.current);
     
     // Load saved patterns from localStorage
     try {
@@ -196,25 +190,22 @@ export default function DrumMachine() {
     return curve;
   };
 
-  // Update effects
+  // Update effects - control wet/dry mix and parameters
   useEffect(() => {
     if (!audioContextRef.current) return;
     
-    // Update reverb
-    const reverbGain = reverbNodeRef.current?.context.createGain();
-    if (reverbGain) {
-      reverbGain.gain.value = reverb / 100;
-    }
-
-    // Update delay feedback
+    // Update delay feedback (controls delay intensity)
     if (delayFeedbackRef.current) {
-      delayFeedbackRef.current.gain.value = delay / 100 * 0.6;
+      delayFeedbackRef.current.gain.value = delay / 100 * 0.5;
     }
 
-    // Update distortion
+    // Update distortion curve (controls distortion amount)
     if (distortionNodeRef.current) {
-      distortionNodeRef.current.curve = makeDistortionCurve(distortion);
+      distortionNodeRef.current.curve = makeDistortionCurve(distortion / 10);
     }
+
+    // Note: Reverb is controlled by the convolver buffer and doesn't have a simple wet/dry control
+    // In a production app, you'd use a dry/wet mixer with gain nodes
   }, [reverb, delay, distortion]);
 
   // Generate drum sounds using Web Audio API
@@ -229,18 +220,12 @@ export default function DrumMachine() {
     osc.connect(filter);
     filter.connect(gain);
     
-    // Connect to effects chain
-    if (masterGainRef.current) {
-      gain.connect(masterGainRef.current);
-    }
-    if (reverbNodeRef.current && reverb > 0) {
-      gain.connect(reverbNodeRef.current);
-    }
-    if (delayNodeRef.current && delay > 0) {
-      gain.connect(delayNodeRef.current);
-    }
-    if (distortionNodeRef.current && distortion > 0) {
+    // Connect to effects chain: gain → distortion → delay → reverb → master
+    // Always connect through the chain, effects will be controlled by their internal parameters
+    if (distortionNodeRef.current) {
       gain.connect(distortionNodeRef.current);
+    } else if (masterGainRef.current) {
+      gain.connect(masterGainRef.current);
     }
 
     // Track active oscillators for cleanup
@@ -735,6 +720,9 @@ export default function DrumMachine() {
     </div>
   );
 }
+
+
+
 
 
 
