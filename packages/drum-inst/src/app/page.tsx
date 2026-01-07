@@ -29,6 +29,7 @@ export default function DrumMachine() {
   const [currentStep, setCurrentStep] = useState(-1);
   const [bpm, setBpm] = useState(DEFAULT_BPM);
   const [savedPatterns, setSavedPatterns] = useState<{ name: string; pattern: Pattern }[]>([]);
+  const [showPatternPicker, setShowPatternPicker] = useState(false);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const schedulerRef = useRef<number | null>(null);
@@ -319,12 +320,20 @@ export default function DrumMachine() {
               />
             </div>
 
-            <button
-              onClick={handleSave}
-              className="px-6 py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-semibold transition-colors"
-            >
-              Save Pattern
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                className="px-6 py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-semibold transition-colors"
+              >
+                Save Pattern
+              </button>
+              <button
+                onClick={() => setShowPatternPicker(true)}
+                className="px-6 py-2 bg-purple-500 hover:bg-purple-600 rounded-lg font-semibold transition-colors"
+              >
+                Load Pattern
+              </button>
+            </div>
           </div>
         </div>
 
@@ -354,30 +363,52 @@ export default function DrumMachine() {
           </div>
         </div>
 
-        {/* Saved Patterns */}
-        {savedPatterns.length > 0 && (
-          <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-6">
-            <h2 className="text-2xl font-bold mb-4">Saved Patterns</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {savedPatterns.map((saved, index) => (
-                <div key={index} className="bg-gray-700/50 rounded-lg p-4 flex justify-between items-center">
-                  <span className="font-semibold">{saved.name}</span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleLoad(saved.pattern)}
-                      className="px-4 py-1 bg-green-500 hover:bg-green-600 rounded text-sm transition-colors"
-                    >
-                      Load
-                    </button>
-                    <button
-                      onClick={() => handleDelete(index)}
-                      className="px-4 py-1 bg-red-500 hover:bg-red-600 rounded text-sm transition-colors"
-                    >
-                      Delete
-                    </button>
-                  </div>
+        {/* Pattern Picker Modal */}
+        {showPatternPicker && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold">Load Pattern</h2>
+                <button
+                  onClick={() => setShowPatternPicker(false)}
+                  className="text-gray-400 hover:text-white text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {savedPatterns.length === 0 ? (
+                <p className="text-gray-400 text-center py-8">No saved patterns yet. Create and save a pattern first!</p>
+              ) : (
+                <div className="space-y-3">
+                  {savedPatterns.map((saved, index) => (
+                    <div key={index} className="bg-gray-700/50 rounded-lg p-4 flex justify-between items-center hover:bg-gray-700 transition-colors">
+                      <span className="font-semibold text-lg">{saved.name}</span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            handleLoad(saved.pattern);
+                            setShowPatternPicker(false);
+                          }}
+                          className="px-6 py-2 bg-green-500 hover:bg-green-600 rounded-lg font-semibold transition-colors"
+                        >
+                          Load
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete pattern "${saved.name}"?`)) {
+                              handleDelete(index);
+                            }
+                          }}
+                          className="px-6 py-2 bg-red-500 hover:bg-red-600 rounded-lg font-semibold transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}
@@ -385,6 +416,9 @@ export default function DrumMachine() {
     </div>
   );
 }
+
+
+
 
 
 
