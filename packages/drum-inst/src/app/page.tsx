@@ -108,13 +108,20 @@ export default function DrumMachine() {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     audioContextRef.current = ctx;
     
-    // Create effects chain: input → distortion → delay → reverb → master → destination
+    // Create master output
     masterGainRef.current = ctx.createGain();
     masterGainRef.current.connect(ctx.destination);
 
-    // Reverb (convolver) - last in chain
+    // Create effects input node (where all sounds connect)
+    effectsInputRef.current = ctx.createGain();
+
+    // === REVERB with wet/dry mix ===
     reverbNodeRef.current = ctx.createConvolver();
-    reverbNodeRef.current.connect(masterGainRef.current);
+    reverbWetRef.current = ctx.createGain();
+    reverbDryRef.current = ctx.createGain();
+    
+    reverbWetRef.current.gain.value = 0; // Start with no reverb
+    reverbDryRef.current.gain.value = 1;
 
     // Create impulse response for reverb
     const sampleRate = ctx.sampleRate;
@@ -128,20 +135,60 @@ export default function DrumMachine() {
     }
     reverbNodeRef.current.buffer = impulse;
 
-    // Delay - middle of chain
+    // === DELAY with wet/dry mix ===
     delayNodeRef.current = ctx.createDelay(1);
     delayNodeRef.current.delayTime.value = 0.25;
     delayFeedbackRef.current = ctx.createGain();
     delayFeedbackRef.current.gain.value = 0;
+    delayWetRef.current = ctx.createGain();
+    delayDryRef.current = ctx.createGain();
+    
+    delayWetRef.current.gain.value = 0; // Start with no delay
+    delayDryRef.current.gain.value = 1;
     
     delayNodeRef.current.connect(delayFeedbackRef.current);
     delayFeedbackRef.current.connect(delayNodeRef.current);
-    delayNodeRef.current.connect(reverbNodeRef.current);
 
-    // Distortion - first in chain
+    // === DISTORTION with wet/dry mix ===
     distortionNodeRef.current = ctx.createWaveShaper();
     distortionNodeRef.current.curve = makeDistortionCurve(0);
-    distortionNodeRef.current.connect(delayNodeRef.current);
+    distortionWetRef.current = ctx.createGain();
+    distortionDryRef.current = ctx.createGain();
+    
+    distortionWetRef.current.gain.value = 0; // Start with no distortion
+    distortionDryRef.current.gain.value = 1;
+
+    // === ROUTING ===
+    // Input splits to dry and wet paths for each effect
+    
+    // Distortion routing
+    effectsInputRef.current.connect(distortionNodeRef.current);
+    distortionNodeRef.current.connect(distortionWetRef.current);
+    effectsInputRef.current.connect(distortionDryRef.current);
+    
+    // Merge distortion and connect to delay
+    const distortionMerge = ctx.createGain();
+    distortionWetRef.current.connect(distortionMerge);
+    distortionDryRef.current.connect(distortionMerge);
+    
+    // Delay routing
+    distortionMerge.connect(delayNodeRef.current);
+    delayNodeRef.current.connect(delayWetRef.current);
+    distortionMerge.connect(delayDryRef.current);
+    
+    // Merge delay and connect to reverb
+    const delayMerge = ctx.createGain();
+    delayWetRef.current.connect(delayMerge);
+    delayDryRef.current.connect(delayMerge);
+    
+    // Reverb routing
+    delayMerge.connect(reverbNodeRef.current);
+    reverbNodeRef.current.connect(reverbWetRef.current);
+    delayMerge.connect(reverbDryRef.current);
+    
+    // Merge reverb and connect to master
+    reverbWetRef.current.connect(masterGainRef.current);
+    reverbDryRef.current.connect(masterGainRef.current);
     
     // Load saved patterns from localStorage
     try {
@@ -191,6 +238,15 @@ export default function DrumMachine() {
     return curve;
   };
 
+  // Wet/dry gain nodes for effects mixing
+  const reverbWetRef = useRef<GainNode | null>(null);
+  const reverbDryRef = useRef<GainNode | null>(null);
+  const delayWetRef = useRef<GainNode | null>(null);
+  const delayDryRef = useRef<GainNode | null>(null);
+  const distortionWetRef = useRef<GainNode | null>(null);
+  const distortionDryRef = useRef<GainNode | null>(null);
+  const effectsInputRef = useRef<GainNode | null>(null);
+
   // Update effects - control wet/dry mix and parameters
   useEffect(() => {
     if (!audioContextRef.current) return;
@@ -200,13 +256,31 @@ export default function DrumMachine() {
       delayFeedbackRef.current.gain.value = delay / 100 * 0.5;
     }
 
+    // Update delay wet/dry mix
+    if (delayWetRef.current && delayDryRef.current) {
+      const wetAmount = delay / 100;
+      delayWetRef.current.gain.value = wetAmount;
+      delayDryRef.current.gain.value = 1 - wetAmount;
+    }
+
     // Update distortion curve (controls distortion amount)
     if (distortionNodeRef.current) {
       distortionNodeRef.current.curve = makeDistortionCurve(distortion / 10);
     }
 
-    // Note: Reverb is controlled by the convolver buffer and doesn't have a simple wet/dry control
-    // In a production app, you'd use a dry/wet mixer with gain nodes
+    // Update distortion wet/dry mix
+    if (distortionWetRef.current && distortionDryRef.current) {
+      const wetAmount = distortion / 100;
+      distortionWetRef.current.gain.value = wetAmount;
+      distortionDryRef.current.gain.value = 1 - wetAmount;
+    }
+
+    // Update reverb wet/dry mix
+    if (reverbWetRef.current && reverbDryRef.current) {
+      const wetAmount = reverb / 100;
+      reverbWetRef.current.gain.value = wetAmount;
+      reverbDryRef.current.gain.value = 1 - wetAmount;
+    }
   }, [reverb, delay, distortion]);
 
   // Generate drum sounds using Web Audio API
@@ -221,10 +295,9 @@ export default function DrumMachine() {
     osc.connect(filter);
     filter.connect(gain);
     
-    // Connect to effects chain: gain → distortion → delay → reverb → master
-    // Always connect through the chain, effects will be controlled by their internal parameters
-    if (distortionNodeRef.current) {
-      gain.connect(distortionNodeRef.current);
+    // Connect to effects input (which routes through all effects)
+    if (effectsInputRef.current) {
+      gain.connect(effectsInputRef.current);
     } else if (masterGainRef.current) {
       gain.connect(masterGainRef.current);
     }
@@ -457,16 +530,24 @@ export default function DrumMachine() {
       const stepDuration = 60 / bpm / 4;
       const totalBars = 4;
       const totalSteps = STEPS * totalBars;
-      const duration = stepDuration * totalSteps;
+      const duration = stepDuration * totalSteps + 1; // Add 1 second for reverb tail
       
-      const offlineCtx = new OfflineAudioContext(2, ctx.sampleRate * duration, ctx.sampleRate);
+      const offlineCtx = new OfflineAudioContext(2, offlineCtx.sampleRate * duration, offlineCtx.sampleRate);
       
-      // Create effects chain for offline rendering
+      // Create master output
       const offlineMaster = offlineCtx.createGain();
       offlineMaster.connect(offlineCtx.destination);
 
+      // Create effects input
+      const offlineEffectsInput = offlineCtx.createGain();
+
+      // === REVERB with wet/dry mix ===
       const offlineReverb = offlineCtx.createConvolver();
-      offlineReverb.connect(offlineMaster);
+      const offlineReverbWet = offlineCtx.createGain();
+      const offlineReverbDry = offlineCtx.createGain();
+      
+      offlineReverbWet.gain.value = reverb / 100;
+      offlineReverbDry.gain.value = 1 - (reverb / 100);
       
       // Create impulse response
       const impulseLength = offlineCtx.sampleRate * 2;
@@ -479,17 +560,55 @@ export default function DrumMachine() {
       }
       offlineReverb.buffer = impulse;
 
+      // === DELAY with wet/dry mix ===
       const offlineDelay = offlineCtx.createDelay(1);
       offlineDelay.delayTime.value = 0.25;
       const offlineDelayFeedback = offlineCtx.createGain();
       offlineDelayFeedback.gain.value = delay / 100 * 0.5;
+      const offlineDelayWet = offlineCtx.createGain();
+      const offlineDelayDry = offlineCtx.createGain();
+      
+      offlineDelayWet.gain.value = delay / 100;
+      offlineDelayDry.gain.value = 1 - (delay / 100);
+      
       offlineDelay.connect(offlineDelayFeedback);
       offlineDelayFeedback.connect(offlineDelay);
-      offlineDelay.connect(offlineReverb);
 
+      // === DISTORTION with wet/dry mix ===
       const offlineDistortion = offlineCtx.createWaveShaper();
       offlineDistortion.curve = makeDistortionCurve(distortion / 10);
-      offlineDistortion.connect(offlineDelay);
+      const offlineDistortionWet = offlineCtx.createGain();
+      const offlineDistortionDry = offlineCtx.createGain();
+      
+      offlineDistortionWet.gain.value = distortion / 100;
+      offlineDistortionDry.gain.value = 1 - (distortion / 100);
+
+      // === ROUTING (same as live audio) ===
+      // Distortion routing
+      offlineEffectsInput.connect(offlineDistortion);
+      offlineDistortion.connect(offlineDistortionWet);
+      offlineEffectsInput.connect(offlineDistortionDry);
+      
+      const offlineDistortionMerge = offlineCtx.createGain();
+      offlineDistortionWet.connect(offlineDistortionMerge);
+      offlineDistortionDry.connect(offlineDistortionMerge);
+      
+      // Delay routing
+      offlineDistortionMerge.connect(offlineDelay);
+      offlineDelay.connect(offlineDelayWet);
+      offlineDistortionMerge.connect(offlineDelayDry);
+      
+      const offlineDelayMerge = offlineCtx.createGain();
+      offlineDelayWet.connect(offlineDelayMerge);
+      offlineDelayDry.connect(offlineDelayMerge);
+      
+      // Reverb routing
+      offlineDelayMerge.connect(offlineReverb);
+      offlineReverb.connect(offlineReverbWet);
+      offlineDelayMerge.connect(offlineReverbDry);
+      
+      offlineReverbWet.connect(offlineMaster);
+      offlineReverbDry.connect(offlineMaster);
 
       // Schedule all sounds
       for (let bar = 0; bar < totalBars; bar++) {
@@ -507,7 +626,7 @@ export default function DrumMachine() {
 
               osc.connect(filter);
               filter.connect(gain);
-              gain.connect(offlineDistortion);
+              gain.connect(offlineEffectsInput);
 
               const MIN_FREQ = 0.01;
               const MIN_GAIN = 0.001;
@@ -944,6 +1063,7 @@ export default function DrumMachine() {
     </div>
   );
 }
+
 
 
 
