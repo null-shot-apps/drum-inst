@@ -21,6 +21,55 @@ const DEFAULT_BPM = 120;
 
 type Pattern = boolean[][];
 
+// Preset patterns
+const PRESET_PATTERNS = [
+  {
+    name: 'Hip Hop 1',
+    pattern: [
+      [true, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false], // Kick
+      [false, false, false, false, true, false, false, false, false, false, false, false, true, false, false, false], // Snare
+      [false, false, true, false, false, false, true, false, false, false, true, false, false, false, true, false], // Hi-Hat
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Open Hat
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Clap
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Tom
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Low Tom
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Rim
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Cowbell
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Crash
+    ]
+  },
+  {
+    name: 'Hip Hop 2',
+    pattern: [
+      [true, false, false, false, false, false, true, false, false, false, false, false, true, false, false, false], // Kick
+      [false, false, false, false, true, false, false, false, false, false, false, false, true, false, false, false], // Snare
+      [true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false], // Hi-Hat
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true], // Open Hat
+      [false, false, false, false, true, false, false, false, false, false, false, false, true, false, false, false], // Clap
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Tom
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Low Tom
+      [false, false, false, false, false, false, false, true, false, false, false, false, false, false, false, false], // Rim
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Cowbell
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Crash
+    ]
+  },
+  {
+    name: 'Techno 1',
+    pattern: [
+      [true, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false], // Kick
+      [false, false, false, false, true, false, false, false, false, false, false, false, true, false, false, false], // Snare
+      [true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false], // Hi-Hat
+      [false, false, false, false, false, false, false, true, false, false, false, false, false, false, false, true], // Open Hat
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Clap
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Tom
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Low Tom
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Rim
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Cowbell
+      [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Crash
+    ]
+  }
+];
+
 export default function DrumMachine() {
   const [pattern, setPattern] = useState<Pattern>(() => 
     Array(DRUM_SOUNDS.length).fill(null).map(() => Array(STEPS).fill(false))
@@ -426,38 +475,65 @@ export default function DrumMachine() {
                 </button>
               </div>
 
-              {savedPatterns.length === 0 ? (
-                <p className="text-gray-400 text-center py-8">No saved patterns yet. Create and save a pattern first!</p>
-              ) : (
-                <div className="space-y-3">
-                  {savedPatterns.map((saved, index) => (
-                    <div key={index} className="bg-gray-700/50 rounded-lg p-4 flex justify-between items-center hover:bg-gray-700 transition-colors">
-                      <span className="font-semibold text-lg">{saved.name}</span>
-                      <div className="flex gap-2">
+              <div className="space-y-6">
+                {/* Preset Patterns Section */}
+                <div>
+                  <h3 className="text-xl font-bold mb-3 text-purple-400">Preset Patterns</h3>
+                  <div className="space-y-3">
+                    {PRESET_PATTERNS.map((preset, index) => (
+                      <div key={`preset-${index}`} className="bg-purple-900/30 rounded-lg p-4 flex justify-between items-center hover:bg-purple-900/50 transition-colors border border-purple-500/30">
+                        <span className="font-semibold text-lg">{preset.name}</span>
                         <button
                           onClick={() => {
-                            handleLoad(saved.pattern);
+                            handleLoad(preset.pattern);
                             setShowPatternPicker(false);
                           }}
-                          className="px-6 py-2 bg-green-500 hover:bg-green-600 rounded-lg font-semibold transition-colors"
+                          className="px-6 py-2 bg-purple-500 hover:bg-purple-600 rounded-lg font-semibold transition-colors"
                         >
                           Load
                         </button>
-                        <button
-                          onClick={() => {
-                            if (confirm(`Delete pattern "${saved.name}"?`)) {
-                              handleDelete(index);
-                            }
-                          }}
-                          className="px-6 py-2 bg-red-500 hover:bg-red-600 rounded-lg font-semibold transition-colors"
-                        >
-                          Delete
-                        </button>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              )}
+
+                {/* Saved Patterns Section */}
+                <div>
+                  <h3 className="text-xl font-bold mb-3 text-blue-400">Your Saved Patterns</h3>
+                  {savedPatterns.length === 0 ? (
+                    <p className="text-gray-400 text-center py-8">No saved patterns yet. Create and save a pattern first!</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {savedPatterns.map((saved, index) => (
+                        <div key={index} className="bg-gray-700/50 rounded-lg p-4 flex justify-between items-center hover:bg-gray-700 transition-colors">
+                          <span className="font-semibold text-lg">{saved.name}</span>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                handleLoad(saved.pattern);
+                                setShowPatternPicker(false);
+                              }}
+                              className="px-6 py-2 bg-green-500 hover:bg-green-600 rounded-lg font-semibold transition-colors"
+                            >
+                              Load
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Delete pattern "${saved.name}"?`)) {
+                                  handleDelete(index);
+                                }
+                              }}
+                              className="px-6 py-2 bg-red-500 hover:bg-red-600 rounded-lg font-semibold transition-colors"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -465,6 +541,8 @@ export default function DrumMachine() {
     </div>
   );
 }
+
+
 
 
 
