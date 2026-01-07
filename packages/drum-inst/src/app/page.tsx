@@ -30,6 +30,8 @@ export default function DrumMachine() {
   const [bpm, setBpm] = useState(DEFAULT_BPM);
   const [savedPatterns, setSavedPatterns] = useState<{ name: string; pattern: Pattern }[]>([]);
   const [showPatternPicker, setShowPatternPicker] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [patternName, setPatternName] = useState('');
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const schedulerRef = useRef<number | null>(null);
@@ -240,12 +242,17 @@ export default function DrumMachine() {
   };
 
   const handleSave = () => {
-    const name = prompt('Enter pattern name:');
-    if (!name) return;
+    setShowSaveDialog(true);
+  };
 
-    const newPatterns = [...savedPatterns, { name, pattern }];
+  const confirmSave = () => {
+    if (!patternName.trim()) return;
+
+    const newPatterns = [...savedPatterns, { name: patternName, pattern }];
     setSavedPatterns(newPatterns);
     localStorage.setItem('drumPatterns', JSON.stringify(newPatterns));
+    setShowSaveDialog(false);
+    setPatternName('');
   };
 
   const handleLoad = (loadedPattern: Pattern) => {
@@ -363,6 +370,48 @@ export default function DrumMachine() {
           </div>
         </div>
 
+        {/* Save Dialog Modal */}
+        {showSaveDialog && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full">
+              <h2 className="text-2xl font-bold mb-4">Save Pattern</h2>
+              <input
+                type="text"
+                value={patternName}
+                onChange={(e) => setPatternName(e.target.value)}
+                placeholder="Enter pattern name..."
+                className="w-full px-4 py-3 bg-gray-700 rounded-lg mb-4 text-white placeholder-gray-400"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') confirmSave();
+                  if (e.key === 'Escape') {
+                    setShowSaveDialog(false);
+                    setPatternName('');
+                  }
+                }}
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => {
+                    setShowSaveDialog(false);
+                    setPatternName('');
+                  }}
+                  className="px-6 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg font-semibold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmSave}
+                  disabled={!patternName.trim()}
+                  className="px-6 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Pattern Picker Modal */}
         {showPatternPicker && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -416,6 +465,9 @@ export default function DrumMachine() {
     </div>
   );
 }
+
+
+
 
 
 
