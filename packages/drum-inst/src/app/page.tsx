@@ -531,8 +531,9 @@ export default function DrumMachine() {
       const totalBars = 4;
       const totalSteps = STEPS * totalBars;
       const duration = stepDuration * totalSteps + 1; // Add 1 second for reverb tail
+      const sampleRate = 44100; // Standard sample rate
       
-      const offlineCtx = new OfflineAudioContext(2, offlineCtx.sampleRate * duration, offlineCtx.sampleRate);
+      const offlineCtx = new OfflineAudioContext(2, sampleRate * duration, sampleRate);
       
       // Create master output
       const offlineMaster = offlineCtx.createGain();
@@ -1063,6 +1064,7 @@ export default function DrumMachine() {
     </div>
   );
 }
+
 
 
 
