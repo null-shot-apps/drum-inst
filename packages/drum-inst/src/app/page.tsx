@@ -86,6 +86,9 @@ export default function DrumMachine() {
   const [showPatternPicker, setShowPatternPicker] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [patternName, setPatternName] = useState('');
+  const [reverb, setReverb] = useState(0);
+  const [delay, setDelay] = useState(0);
+  const [distortion, setDistortion] = useState(0);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const schedulerRef = useRef<number | null>(null);
@@ -93,10 +96,57 @@ export default function DrumMachine() {
   const currentStepRef = useRef(-1);
   const patternRef = useRef<Pattern>(pattern);
   const activeOscillatorsRef = useRef<Set<OscillatorNode>>(new Set());
+  const reverbNodeRef = useRef<ConvolverNode | null>(null);
+  const delayNodeRef = useRef<DelayNode | null>(null);
+  const delayFeedbackRef = useRef<GainNode | null>(null);
+  const distortionNodeRef = useRef<WaveShaperNode | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
 
   // Initialize audio context
   useEffect(() => {
-    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    audioContextRef.current = ctx;
+    
+    // Create effects chain
+    masterGainRef.current = ctx.createGain();
+    masterGainRef.current.connect(ctx.destination);
+
+    // Reverb (convolver)
+    reverbNodeRef.current = ctx.createConvolver();
+    const reverbGain = ctx.createGain();
+    reverbGain.gain.value = 0;
+    reverbNodeRef.current.connect(reverbGain);
+    reverbGain.connect(masterGainRef.current);
+
+    // Create impulse response for reverb
+    const sampleRate = ctx.sampleRate;
+    const length = sampleRate * 2;
+    const impulse = ctx.createBuffer(2, length, sampleRate);
+    for (let channel = 0; channel < 2; channel++) {
+      const channelData = impulse.getChannelData(channel);
+      for (let i = 0; i < length; i++) {
+        channelData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2);
+      }
+    }
+    reverbNodeRef.current.buffer = impulse;
+
+    // Delay
+    delayNodeRef.current = ctx.createDelay(1);
+    delayNodeRef.current.delayTime.value = 0.25;
+    delayFeedbackRef.current = ctx.createGain();
+    delayFeedbackRef.current.gain.value = 0;
+    const delayGain = ctx.createGain();
+    delayGain.gain.value = 0;
+    
+    delayNodeRef.current.connect(delayFeedbackRef.current);
+    delayFeedbackRef.current.connect(delayNodeRef.current);
+    delayNodeRef.current.connect(delayGain);
+    delayGain.connect(masterGainRef.current);
+
+    // Distortion
+    distortionNodeRef.current = ctx.createWaveShaper();
+    distortionNodeRef.current.curve = makeDistortionCurve(0);
+    distortionNodeRef.current.connect(masterGainRef.current);
     
     // Load saved patterns from localStorage
     try {
@@ -133,6 +183,40 @@ export default function DrumMachine() {
     };
   }, []);
 
+  // Create distortion curve
+  const makeDistortionCurve = (amount: number) => {
+    const samples = 44100;
+    const curve = new Float32Array(samples);
+    const deg = Math.PI / 180;
+    
+    for (let i = 0; i < samples; i++) {
+      const x = (i * 2) / samples - 1;
+      curve[i] = ((3 + amount) * x * 20 * deg) / (Math.PI + amount * Math.abs(x));
+    }
+    return curve;
+  };
+
+  // Update effects
+  useEffect(() => {
+    if (!audioContextRef.current) return;
+    
+    // Update reverb
+    const reverbGain = reverbNodeRef.current?.context.createGain();
+    if (reverbGain) {
+      reverbGain.gain.value = reverb / 100;
+    }
+
+    // Update delay feedback
+    if (delayFeedbackRef.current) {
+      delayFeedbackRef.current.gain.value = delay / 100 * 0.6;
+    }
+
+    // Update distortion
+    if (distortionNodeRef.current) {
+      distortionNodeRef.current.curve = makeDistortionCurve(distortion);
+    }
+  }, [reverb, delay, distortion]);
+
   // Generate drum sounds using Web Audio API
   const playSound = useCallback((drumId: string, time: number) => {
     const ctx = audioContextRef.current;
@@ -144,7 +228,20 @@ export default function DrumMachine() {
 
     osc.connect(filter);
     filter.connect(gain);
-    gain.connect(ctx.destination);
+    
+    // Connect to effects chain
+    if (masterGainRef.current) {
+      gain.connect(masterGainRef.current);
+    }
+    if (reverbNodeRef.current && reverb > 0) {
+      gain.connect(reverbNodeRef.current);
+    }
+    if (delayNodeRef.current && delay > 0) {
+      gain.connect(delayNodeRef.current);
+    }
+    if (distortionNodeRef.current && distortion > 0) {
+      gain.connect(distortionNodeRef.current);
+    }
 
     // Track active oscillators for cleanup
     activeOscillatorsRef.current.add(osc);
@@ -370,6 +467,55 @@ export default function DrumMachine() {
           Drum Machine
         </h1>
 
+        {/* Effects Controls */}
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-6 mb-6">
+          <h2 className="text-2xl font-bold mb-4 text-purple-300">Effects</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <label className="flex items-center justify-between mb-2">
+                <span className="font-semibold">Reverb</span>
+                <span className="text-sm text-gray-400">{reverb}%</span>
+              </label>
+              <input
+                type="range"
+                value={reverb}
+                onChange={(e) => setReverb(parseInt(e.target.value))}
+                min="0"
+                max="100"
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="flex items-center justify-between mb-2">
+                <span className="font-semibold">Delay</span>
+                <span className="text-sm text-gray-400">{delay}%</span>
+              </label>
+              <input
+                type="range"
+                value={delay}
+                onChange={(e) => setDelay(parseInt(e.target.value))}
+                min="0"
+                max="100"
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="flex items-center justify-between mb-2">
+                <span className="font-semibold">Distortion</span>
+                <span className="text-sm text-gray-400">{distortion}%</span>
+              </label>
+              <input
+                type="range"
+                value={distortion}
+                onChange={(e) => setDistortion(parseInt(e.target.value))}
+                min="0"
+                max="100"
+                className="w-full"
+              />
+            </div>
+          </div>
+        </div>
+
         {/* Controls */}
         <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-6 mb-6">
           <div className="flex flex-wrap gap-4 items-center justify-between">
@@ -589,6 +735,12 @@ export default function DrumMachine() {
     </div>
   );
 }
+
+
+
+
+
+
 
 
 
