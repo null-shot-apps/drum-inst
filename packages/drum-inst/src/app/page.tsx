@@ -74,6 +74,11 @@ export default function DrumMachine() {
   const [pattern, setPattern] = useState<Pattern>(() => 
     Array(DRUM_SOUNDS.length).fill(null).map(() => Array(STEPS).fill(false))
   );
+
+  // Keep pattern ref in sync for scheduler
+  useEffect(() => {
+    patternRef.current = pattern;
+  }, [pattern]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState(-1);
   const [bpm, setBpm] = useState(DEFAULT_BPM);
@@ -86,22 +91,42 @@ export default function DrumMachine() {
   const schedulerRef = useRef<number | null>(null);
   const nextStepTimeRef = useRef(0);
   const currentStepRef = useRef(-1);
+  const patternRef = useRef<Pattern>(pattern);
+  const activeOscillatorsRef = useRef<Set<OscillatorNode>>(new Set());
 
   // Initialize audio context
   useEffect(() => {
     audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     
     // Load saved patterns from localStorage
-    const saved = localStorage.getItem('drumPatterns');
-    if (saved) {
-      try {
-        setSavedPatterns(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to load patterns:', e);
+    try {
+      const saved = localStorage.getItem('drumPatterns');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Validate structure
+        if (Array.isArray(parsed)) {
+          setSavedPatterns(parsed);
+        }
       }
+    } catch (e) {
+      console.error('Failed to load patterns:', e);
+      // Clear corrupted data
+      localStorage.removeItem('drumPatterns');
     }
 
     return () => {
+      // Clean up all active oscillators
+      activeOscillatorsRef.current.forEach(osc => {
+        try {
+          osc.stop();
+          osc.disconnect();
+        } catch (e) {
+          // Oscillator may already be stopped
+        }
+      });
+      activeOscillatorsRef.current.clear();
+
+      // Close audio context
       if (audioContextRef.current) {
         audioContextRef.current.close();
       }
@@ -121,12 +146,18 @@ export default function DrumMachine() {
     filter.connect(gain);
     gain.connect(ctx.destination);
 
+    // Track active oscillators for cleanup
+    activeOscillatorsRef.current.add(osc);
+
+    const MIN_FREQ = 0.01; // Minimum frequency for exponential ramps
+    const MIN_GAIN = 0.001; // Minimum gain for exponential ramps
+
     switch (drumId) {
       case 'kick':
         osc.frequency.setValueAtTime(150, time);
-        osc.frequency.exponentialRampToValueAtTime(20, time + 0.5);
+        osc.frequency.exponentialRampToValueAtTime(Math.max(MIN_FREQ, 20), time + 0.5);
         gain.gain.setValueAtTime(1, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
+        gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.5);
         break;
       case 'snare':
         osc.type = 'triangle';
@@ -134,7 +165,7 @@ export default function DrumMachine() {
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(1000, time);
         gain.gain.setValueAtTime(0.7, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
+        gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.2);
         break;
       case 'hihat':
         osc.type = 'square';
@@ -142,7 +173,7 @@ export default function DrumMachine() {
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(5000, time);
         gain.gain.setValueAtTime(0.3, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+        gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.05);
         break;
       case 'openhat':
         osc.type = 'square';
@@ -150,7 +181,7 @@ export default function DrumMachine() {
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(4000, time);
         gain.gain.setValueAtTime(0.35, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.3);
+        gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.3);
         break;
       case 'clap':
         osc.type = 'sawtooth';
@@ -158,25 +189,25 @@ export default function DrumMachine() {
         filter.type = 'bandpass';
         filter.frequency.setValueAtTime(1500, time);
         gain.gain.setValueAtTime(0.5, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+        gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.1);
         break;
       case 'tom':
         osc.frequency.setValueAtTime(180, time);
-        osc.frequency.exponentialRampToValueAtTime(30, time + 0.4);
+        osc.frequency.exponentialRampToValueAtTime(Math.max(MIN_FREQ, 30), time + 0.4);
         gain.gain.setValueAtTime(0.8, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.4);
+        gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.4);
         break;
       case 'lowtom':
         osc.frequency.setValueAtTime(120, time);
-        osc.frequency.exponentialRampToValueAtTime(20, time + 0.5);
+        osc.frequency.exponentialRampToValueAtTime(Math.max(MIN_FREQ, 20), time + 0.5);
         gain.gain.setValueAtTime(0.85, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
+        gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.5);
         break;
       case 'rim':
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(800, time);
         gain.gain.setValueAtTime(0.4, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+        gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.08);
         break;
       case 'cowbell':
         osc.type = 'square';
@@ -184,7 +215,7 @@ export default function DrumMachine() {
         filter.type = 'bandpass';
         filter.frequency.setValueAtTime(800, time);
         gain.gain.setValueAtTime(0.5, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+        gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.15);
         break;
       case 'crash':
         osc.type = 'sawtooth';
@@ -192,12 +223,17 @@ export default function DrumMachine() {
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(3000, time);
         gain.gain.setValueAtTime(0.4, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.8);
+        gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.8);
         break;
     }
 
     osc.start(time);
     osc.stop(time + 1);
+
+    // Clean up oscillator reference after it stops
+    osc.onended = () => {
+      activeOscillatorsRef.current.delete(osc);
+    };
   }, []);
 
   // Sequencer scheduler
@@ -212,21 +248,24 @@ export default function DrumMachine() {
       const step = (currentStepRef.current + 1) % STEPS;
       currentStepRef.current = step;
       
+      // Use pattern ref to avoid stale closure
+      const currentPattern = patternRef.current;
+      
       // Schedule sounds for this step
-      pattern.forEach((drumPattern, drumIndex) => {
+      currentPattern.forEach((drumPattern, drumIndex) => {
         if (drumPattern[step]) {
           playSound(DRUM_SOUNDS[drumIndex].id, nextStepTimeRef.current);
         }
       });
 
-      // Update visual step indicator
+      // Update visual step indicator (batched by React)
       setCurrentStep(step);
 
       nextStepTimeRef.current += stepDuration;
     }
 
     schedulerRef.current = requestAnimationFrame(scheduler);
-  }, [bpm, pattern, playSound]);
+  }, [bpm, playSound]);
 
   // Play/pause control
   useEffect(() => {
@@ -297,11 +336,16 @@ export default function DrumMachine() {
   const confirmSave = () => {
     if (!patternName.trim()) return;
 
-    const newPatterns = [...savedPatterns, { name: patternName, pattern }];
-    setSavedPatterns(newPatterns);
-    localStorage.setItem('drumPatterns', JSON.stringify(newPatterns));
-    setShowSaveDialog(false);
-    setPatternName('');
+    try {
+      const newPatterns = [...savedPatterns, { name: patternName, pattern }];
+      setSavedPatterns(newPatterns);
+      localStorage.setItem('drumPatterns', JSON.stringify(newPatterns));
+      setShowSaveDialog(false);
+      setPatternName('');
+    } catch (e) {
+      console.error('Failed to save pattern:', e);
+      alert('Failed to save pattern. Storage may be full.');
+    }
   };
 
   const handleLoad = (loadedPattern: Pattern) => {
@@ -310,9 +354,13 @@ export default function DrumMachine() {
   };
 
   const handleDelete = (index: number) => {
-    const newPatterns = savedPatterns.filter((_, i) => i !== index);
-    setSavedPatterns(newPatterns);
-    localStorage.setItem('drumPatterns', JSON.stringify(newPatterns));
+    try {
+      const newPatterns = savedPatterns.filter((_, i) => i !== index);
+      setSavedPatterns(newPatterns);
+      localStorage.setItem('drumPatterns', JSON.stringify(newPatterns));
+    } catch (e) {
+      console.error('Failed to delete pattern:', e);
+    }
   };
 
   return (
@@ -541,6 +589,13 @@ export default function DrumMachine() {
     </div>
   );
 }
+
+
+
+
+
+
+
 
 
 
