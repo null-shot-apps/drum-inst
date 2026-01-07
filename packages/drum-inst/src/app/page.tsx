@@ -89,6 +89,7 @@ export default function DrumMachine() {
   const [reverb, setReverb] = useState(0);
   const [delay, setDelay] = useState(0);
   const [distortion, setDistortion] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const schedulerRef = useRef<number | null>(null);
@@ -445,6 +446,222 @@ export default function DrumMachine() {
     }
   };
 
+  const handleExport = async () => {
+    const ctx = audioContextRef.current;
+    if (!ctx) return;
+
+    setIsExporting(true);
+
+    try {
+      // Create offline context for rendering
+      const stepDuration = 60 / bpm / 4;
+      const totalBars = 4;
+      const totalSteps = STEPS * totalBars;
+      const duration = stepDuration * totalSteps;
+      
+      const offlineCtx = new OfflineAudioContext(2, ctx.sampleRate * duration, ctx.sampleRate);
+      
+      // Create effects chain for offline rendering
+      const offlineMaster = offlineCtx.createGain();
+      offlineMaster.connect(offlineCtx.destination);
+
+      const offlineReverb = offlineCtx.createConvolver();
+      offlineReverb.connect(offlineMaster);
+      
+      // Create impulse response
+      const impulseLength = offlineCtx.sampleRate * 2;
+      const impulse = offlineCtx.createBuffer(2, impulseLength, offlineCtx.sampleRate);
+      for (let channel = 0; channel < 2; channel++) {
+        const channelData = impulse.getChannelData(channel);
+        for (let i = 0; i < impulseLength; i++) {
+          channelData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / impulseLength, 2);
+        }
+      }
+      offlineReverb.buffer = impulse;
+
+      const offlineDelay = offlineCtx.createDelay(1);
+      offlineDelay.delayTime.value = 0.25;
+      const offlineDelayFeedback = offlineCtx.createGain();
+      offlineDelayFeedback.gain.value = delay / 100 * 0.5;
+      offlineDelay.connect(offlineDelayFeedback);
+      offlineDelayFeedback.connect(offlineDelay);
+      offlineDelay.connect(offlineReverb);
+
+      const offlineDistortion = offlineCtx.createWaveShaper();
+      offlineDistortion.curve = makeDistortionCurve(distortion / 10);
+      offlineDistortion.connect(offlineDelay);
+
+      // Schedule all sounds
+      for (let bar = 0; bar < totalBars; bar++) {
+        for (let step = 0; step < STEPS; step++) {
+          const time = (bar * STEPS + step) * stepDuration;
+          
+          pattern.forEach((drumPattern, drumIndex) => {
+            if (drumPattern[step]) {
+              const drumId = DRUM_SOUNDS[drumIndex].id;
+              
+              // Create sound for offline rendering
+              const osc = offlineCtx.createOscillator();
+              const gain = offlineCtx.createGain();
+              const filter = offlineCtx.createBiquadFilter();
+
+              osc.connect(filter);
+              filter.connect(gain);
+              gain.connect(offlineDistortion);
+
+              const MIN_FREQ = 0.01;
+              const MIN_GAIN = 0.001;
+
+              switch (drumId) {
+                case 'kick':
+                  osc.frequency.setValueAtTime(150, time);
+                  osc.frequency.exponentialRampToValueAtTime(Math.max(MIN_FREQ, 20), time + 0.5);
+                  gain.gain.setValueAtTime(1, time);
+                  gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.5);
+                  break;
+                case 'snare':
+                  osc.type = 'triangle';
+                  osc.frequency.setValueAtTime(200, time);
+                  filter.type = 'highpass';
+                  filter.frequency.setValueAtTime(1000, time);
+                  gain.gain.setValueAtTime(0.7, time);
+                  gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.2);
+                  break;
+                case 'hihat':
+                  osc.type = 'square';
+                  osc.frequency.setValueAtTime(300, time);
+                  filter.type = 'highpass';
+                  filter.frequency.setValueAtTime(5000, time);
+                  gain.gain.setValueAtTime(0.3, time);
+                  gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.05);
+                  break;
+                case 'openhat':
+                  osc.type = 'square';
+                  osc.frequency.setValueAtTime(250, time);
+                  filter.type = 'highpass';
+                  filter.frequency.setValueAtTime(4000, time);
+                  gain.gain.setValueAtTime(0.35, time);
+                  gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.3);
+                  break;
+                case 'clap':
+                  osc.type = 'sawtooth';
+                  osc.frequency.setValueAtTime(400, time);
+                  filter.type = 'bandpass';
+                  filter.frequency.setValueAtTime(1500, time);
+                  gain.gain.setValueAtTime(0.5, time);
+                  gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.1);
+                  break;
+                case 'tom':
+                  osc.frequency.setValueAtTime(180, time);
+                  osc.frequency.exponentialRampToValueAtTime(Math.max(MIN_FREQ, 30), time + 0.4);
+                  gain.gain.setValueAtTime(0.8, time);
+                  gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.4);
+                  break;
+                case 'lowtom':
+                  osc.frequency.setValueAtTime(120, time);
+                  osc.frequency.exponentialRampToValueAtTime(Math.max(MIN_FREQ, 20), time + 0.5);
+                  gain.gain.setValueAtTime(0.85, time);
+                  gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.5);
+                  break;
+                case 'rim':
+                  osc.type = 'triangle';
+                  osc.frequency.setValueAtTime(800, time);
+                  gain.gain.setValueAtTime(0.4, time);
+                  gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.08);
+                  break;
+                case 'cowbell':
+                  osc.type = 'square';
+                  osc.frequency.setValueAtTime(540, time);
+                  filter.type = 'bandpass';
+                  filter.frequency.setValueAtTime(800, time);
+                  gain.gain.setValueAtTime(0.5, time);
+                  gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.15);
+                  break;
+                case 'crash':
+                  osc.type = 'sawtooth';
+                  osc.frequency.setValueAtTime(450, time);
+                  filter.type = 'highpass';
+                  filter.frequency.setValueAtTime(3000, time);
+                  gain.gain.setValueAtTime(0.4, time);
+                  gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.8);
+                  break;
+              }
+
+              osc.start(time);
+              osc.stop(time + 1);
+            }
+          });
+        }
+      }
+
+      // Render audio
+      const renderedBuffer = await offlineCtx.startRendering();
+
+      // Convert to WAV
+      const wav = audioBufferToWav(renderedBuffer);
+      const blob = new Blob([wav], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+
+      // Download
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `drum-pattern-${Date.now()}.wav`;
+      a.click();
+
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Export failed:', e);
+      alert('Export failed. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Convert AudioBuffer to WAV format
+  const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
+    const length = buffer.length * buffer.numberOfChannels * 2;
+    const arrayBuffer = new ArrayBuffer(44 + length);
+    const view = new DataView(arrayBuffer);
+
+    // WAV header
+    const writeString = (offset: number, string: string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
+
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + length, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, buffer.numberOfChannels, true);
+    view.setUint32(24, buffer.sampleRate, true);
+    view.setUint32(28, buffer.sampleRate * buffer.numberOfChannels * 2, true);
+    view.setUint16(32, buffer.numberOfChannels * 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, length, true);
+
+    // Write audio data
+    const channels = [];
+    for (let i = 0; i < buffer.numberOfChannels; i++) {
+      channels.push(buffer.getChannelData(i));
+    }
+
+    let offset = 44;
+    for (let i = 0; i < buffer.length; i++) {
+      for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+        const sample = Math.max(-1, Math.min(1, channels[channel][i]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+        offset += 2;
+      }
+    }
+
+    return arrayBuffer;
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 text-white p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
@@ -567,6 +784,13 @@ export default function DrumMachine() {
                 className="px-6 py-2 bg-purple-500 hover:bg-purple-600 rounded-lg font-semibold transition-colors"
               >
                 Load Pattern
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={isExporting}
+                className="px-6 py-2 bg-pink-500 hover:bg-pink-600 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors"
+              >
+                {isExporting ? 'Exporting...' : 'Export Audio'}
               </button>
             </div>
           </div>
@@ -720,6 +944,9 @@ export default function DrumMachine() {
     </div>
   );
 }
+
+
+
 
 
 
