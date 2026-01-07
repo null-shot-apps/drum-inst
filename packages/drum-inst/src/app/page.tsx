@@ -7,9 +7,13 @@ const DRUM_SOUNDS = [
   { id: 'kick', name: 'Kick', color: 'bg-red-500' },
   { id: 'snare', name: 'Snare', color: 'bg-blue-500' },
   { id: 'hihat', name: 'Hi-Hat', color: 'bg-yellow-500' },
+  { id: 'openhat', name: 'Open Hat', color: 'bg-amber-500' },
   { id: 'clap', name: 'Clap', color: 'bg-green-500' },
   { id: 'tom', name: 'Tom', color: 'bg-purple-500' },
+  { id: 'lowtom', name: 'Low Tom', color: 'bg-violet-500' },
   { id: 'rim', name: 'Rim', color: 'bg-pink-500' },
+  { id: 'cowbell', name: 'Cowbell', color: 'bg-orange-500' },
+  { id: 'crash', name: 'Crash', color: 'bg-cyan-500' },
 ];
 
 const STEPS = 16;
@@ -88,6 +92,14 @@ export default function DrumMachine() {
         gain.gain.setValueAtTime(0.3, time);
         gain.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
         break;
+      case 'openhat':
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(250, time);
+        filter.type = 'highpass';
+        filter.frequency.setValueAtTime(4000, time);
+        gain.gain.setValueAtTime(0.35, time);
+        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.3);
+        break;
       case 'clap':
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(400, time);
@@ -102,11 +114,33 @@ export default function DrumMachine() {
         gain.gain.setValueAtTime(0.8, time);
         gain.gain.exponentialRampToValueAtTime(0.01, time + 0.4);
         break;
+      case 'lowtom':
+        osc.frequency.setValueAtTime(120, time);
+        osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.5);
+        gain.gain.setValueAtTime(0.85, time);
+        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
+        break;
       case 'rim':
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(800, time);
         gain.gain.setValueAtTime(0.4, time);
         gain.gain.exponentialRampToValueAtTime(0.01, time + 0.08);
+        break;
+      case 'cowbell':
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(540, time);
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(800, time);
+        gain.gain.setValueAtTime(0.5, time);
+        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.15);
+        break;
+      case 'crash':
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(450, time);
+        filter.type = 'highpass';
+        filter.frequency.setValueAtTime(3000, time);
+        gain.gain.setValueAtTime(0.4, time);
+        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.8);
         break;
     }
 
@@ -339,4 +373,6 @@ export default function DrumMachine() {
     </div>
   );
 }
+
+
 
