@@ -187,15 +187,21 @@ export default function DrumMachine() {
         ctx.resume();
       }
 
-      nextStepTimeRef.current = ctx.currentTime;
-      currentStepRef.current = -1;
+      // Only reset time if starting from stop (currentStepRef is -1)
+      if (currentStepRef.current === -1) {
+        nextStepTimeRef.current = ctx.currentTime;
+      } else {
+        // Resume from current position
+        nextStepTimeRef.current = ctx.currentTime;
+      }
+      
       scheduler();
     } else {
       if (schedulerRef.current) {
         cancelAnimationFrame(schedulerRef.current);
         schedulerRef.current = null;
       }
-      setCurrentStep(-1);
+      // Don't reset currentStep on pause - keep position
     }
 
     return () => {
@@ -219,12 +225,13 @@ export default function DrumMachine() {
 
   const handlePause = () => {
     setIsPlaying(false);
+    // Keep current position for resume
   };
 
   const handleStop = () => {
     setIsPlaying(false);
     setCurrentStep(-1);
-    currentStepRef.current = -1;
+    currentStepRef.current = -1; // Reset to beginning
   };
 
   const handleClear = () => {
@@ -378,6 +385,8 @@ export default function DrumMachine() {
     </div>
   );
 }
+
+
 
 
 
