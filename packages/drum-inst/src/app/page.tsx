@@ -72,9 +72,9 @@ export default function DrumMachine() {
     switch (drumId) {
       case 'kick':
         osc.frequency.setValueAtTime(150, time);
-        osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.5);
+        osc.frequency.exponentialRampToValueAtTime(20, time + 0.5);
         gain.gain.setValueAtTime(1, time);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
         break;
       case 'snare':
         osc.type = 'triangle';
@@ -82,7 +82,7 @@ export default function DrumMachine() {
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(1000, time);
         gain.gain.setValueAtTime(0.7, time);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
         break;
       case 'hihat':
         osc.type = 'square';
@@ -90,7 +90,7 @@ export default function DrumMachine() {
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(5000, time);
         gain.gain.setValueAtTime(0.3, time);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
         break;
       case 'openhat':
         osc.type = 'square';
@@ -98,7 +98,7 @@ export default function DrumMachine() {
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(4000, time);
         gain.gain.setValueAtTime(0.35, time);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.3);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.3);
         break;
       case 'clap':
         osc.type = 'sawtooth';
@@ -106,25 +106,25 @@ export default function DrumMachine() {
         filter.type = 'bandpass';
         filter.frequency.setValueAtTime(1500, time);
         gain.gain.setValueAtTime(0.5, time);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
         break;
       case 'tom':
         osc.frequency.setValueAtTime(180, time);
-        osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.4);
+        osc.frequency.exponentialRampToValueAtTime(30, time + 0.4);
         gain.gain.setValueAtTime(0.8, time);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.4);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.4);
         break;
       case 'lowtom':
         osc.frequency.setValueAtTime(120, time);
-        osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.5);
+        osc.frequency.exponentialRampToValueAtTime(20, time + 0.5);
         gain.gain.setValueAtTime(0.85, time);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
         break;
       case 'rim':
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(800, time);
         gain.gain.setValueAtTime(0.4, time);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
         break;
       case 'cowbell':
         osc.type = 'square';
@@ -132,7 +132,7 @@ export default function DrumMachine() {
         filter.type = 'bandpass';
         filter.frequency.setValueAtTime(800, time);
         gain.gain.setValueAtTime(0.5, time);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
         break;
       case 'crash':
         osc.type = 'sawtooth';
@@ -140,12 +140,12 @@ export default function DrumMachine() {
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(3000, time);
         gain.gain.setValueAtTime(0.4, time);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.8);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.8);
         break;
     }
 
     osc.start(time);
-    osc.stop(time + 0.5);
+    osc.stop(time + 1);
   }, []);
 
   // Sequencer scheduler
@@ -161,9 +161,9 @@ export default function DrumMachine() {
       currentStepRef.current = step;
       
       // Schedule sounds for this step
-      DRUM_SOUNDS.forEach((drum, drumIndex) => {
-        if (pattern[drumIndex][step]) {
-          playSound(drum.id, nextStepTimeRef.current);
+      pattern.forEach((drumPattern, drumIndex) => {
+        if (drumPattern[step]) {
+          playSound(DRUM_SOUNDS[drumIndex].id, nextStepTimeRef.current);
         }
       });
 
@@ -181,6 +181,11 @@ export default function DrumMachine() {
     if (isPlaying) {
       const ctx = audioContextRef.current;
       if (!ctx) return;
+
+      // Resume audio context if suspended (browser autoplay policy)
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
 
       nextStepTimeRef.current = ctx.currentTime;
       currentStepRef.current = -1;
@@ -373,6 +378,19 @@ export default function DrumMachine() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
