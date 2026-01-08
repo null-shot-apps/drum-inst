@@ -17,9 +17,15 @@ const DRUM_SOUNDS = [
 ];
 
 const STEPS = 16;
-const DEFAULT_BPM = 120;
+const DEFAULT_BPM = 145;
 
 type Pattern = boolean[][];
+type InstrumentSettings = {
+  volume: number;
+  reverb: number;
+  delay: number;
+  distortion: number;
+};
 
 // Preset patterns
 const PRESET_PATTERNS = [
@@ -89,6 +95,10 @@ export default function DrumMachine() {
   const [reverb, setReverb] = useState(0);
   const [delay, setDelay] = useState(0);
   const [distortion, setDistortion] = useState(0);
+  const [instrumentSettings, setInstrumentSettings] = useState<InstrumentSettings[]>(() =>
+    DRUM_SOUNDS.map(() => ({ volume: 100, reverb: 0, delay: 0, distortion: 0 }))
+  );
+  const [selectedInstrument, setSelectedInstrument] = useState<number | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -284,22 +294,91 @@ export default function DrumMachine() {
   }, [reverb, delay, distortion]);
 
   // Generate drum sounds using Web Audio API
-  const playSound = useCallback((drumId: string, time: number) => {
+  const playSound = useCallback((drumId: string, time: number, drumIndex: number) => {
     const ctx = audioContextRef.current;
     if (!ctx) return;
+
+    const settings = instrumentSettings[drumIndex];
+    const volumeMultiplier = settings.volume / 100;
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
 
+    // Create individual effects chain for this instrument
+    const instDistortion = ctx.createWaveShaper();
+    const instDelay = ctx.createDelay(1);
+    const instDelayFeedback = ctx.createGain();
+    const instReverb = ctx.createConvolver();
+    
+    // Create wet/dry gains for individual effects
+    const instDistortionWet = ctx.createGain();
+    const instDistortionDry = ctx.createGain();
+    const instDelayWet = ctx.createGain();
+    const instDelayDry = ctx.createGain();
+    const instReverbWet = ctx.createGain();
+    const instReverbDry = ctx.createGain();
+
+    // Configure individual distortion
+    instDistortion.curve = makeDistortionCurve(settings.distortion / 10);
+    instDistortionWet.gain.value = settings.distortion / 100;
+    instDistortionDry.gain.value = 1 - (settings.distortion / 100);
+
+    // Configure individual delay
+    instDelay.delayTime.value = 0.25;
+    instDelayFeedback.gain.value = settings.delay / 100 * 0.5;
+    instDelayWet.gain.value = settings.delay / 100;
+    instDelayDry.gain.value = 1 - (settings.delay / 100);
+    instDelay.connect(instDelayFeedback);
+    instDelayFeedback.connect(instDelay);
+
+    // Configure individual reverb
+    const impulseLength = ctx.sampleRate * 2;
+    const impulse = ctx.createBuffer(2, impulseLength, ctx.sampleRate);
+    for (let channel = 0; channel < 2; channel++) {
+      const channelData = impulse.getChannelData(channel);
+      for (let i = 0; i < impulseLength; i++) {
+        channelData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / impulseLength, 2);
+      }
+    }
+    instReverb.buffer = impulse;
+    instReverbWet.gain.value = settings.reverb / 100;
+    instReverbDry.gain.value = 1 - (settings.reverb / 100);
+
+    // Build effects chain: osc -> filter -> gain -> distortion -> delay -> reverb -> master
     osc.connect(filter);
     filter.connect(gain);
     
-    // Connect to effects input (which routes through all effects)
+    // Distortion routing
+    gain.connect(instDistortion);
+    instDistortion.connect(instDistortionWet);
+    gain.connect(instDistortionDry);
+    
+    const distortionMerge = ctx.createGain();
+    instDistortionWet.connect(distortionMerge);
+    instDistortionDry.connect(distortionMerge);
+    
+    // Delay routing
+    distortionMerge.connect(instDelay);
+    instDelay.connect(instDelayWet);
+    distortionMerge.connect(instDelayDry);
+    
+    const delayMerge = ctx.createGain();
+    instDelayWet.connect(delayMerge);
+    instDelayDry.connect(delayMerge);
+    
+    // Reverb routing
+    delayMerge.connect(instReverb);
+    instReverb.connect(instReverbWet);
+    delayMerge.connect(instReverbDry);
+    
+    // Connect to master (also apply global effects if needed)
     if (effectsInputRef.current) {
-      gain.connect(effectsInputRef.current);
+      instReverbWet.connect(effectsInputRef.current);
+      instReverbDry.connect(effectsInputRef.current);
     } else if (masterGainRef.current) {
-      gain.connect(masterGainRef.current);
+      instReverbWet.connect(masterGainRef.current);
+      instReverbDry.connect(masterGainRef.current);
     }
 
     // Track active oscillators for cleanup
@@ -312,7 +391,7 @@ export default function DrumMachine() {
       case 'kick':
         osc.frequency.setValueAtTime(150, time);
         osc.frequency.exponentialRampToValueAtTime(Math.max(MIN_FREQ, 20), time + 0.5);
-        gain.gain.setValueAtTime(1, time);
+        gain.gain.setValueAtTime(1 * volumeMultiplier, time);
         gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.5);
         break;
       case 'snare':
@@ -320,7 +399,7 @@ export default function DrumMachine() {
         osc.frequency.setValueAtTime(200, time);
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(1000, time);
-        gain.gain.setValueAtTime(0.7, time);
+        gain.gain.setValueAtTime(0.7 * volumeMultiplier, time);
         gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.2);
         break;
       case 'hihat':
@@ -328,7 +407,7 @@ export default function DrumMachine() {
         osc.frequency.setValueAtTime(300, time);
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(5000, time);
-        gain.gain.setValueAtTime(0.3, time);
+        gain.gain.setValueAtTime(0.3 * volumeMultiplier, time);
         gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.05);
         break;
       case 'openhat':
@@ -336,7 +415,7 @@ export default function DrumMachine() {
         osc.frequency.setValueAtTime(250, time);
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(4000, time);
-        gain.gain.setValueAtTime(0.35, time);
+        gain.gain.setValueAtTime(0.35 * volumeMultiplier, time);
         gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.3);
         break;
       case 'clap':
@@ -344,25 +423,25 @@ export default function DrumMachine() {
         osc.frequency.setValueAtTime(400, time);
         filter.type = 'bandpass';
         filter.frequency.setValueAtTime(1500, time);
-        gain.gain.setValueAtTime(0.5, time);
+        gain.gain.setValueAtTime(0.5 * volumeMultiplier, time);
         gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.1);
         break;
       case 'tom':
         osc.frequency.setValueAtTime(180, time);
         osc.frequency.exponentialRampToValueAtTime(Math.max(MIN_FREQ, 30), time + 0.4);
-        gain.gain.setValueAtTime(0.8, time);
+        gain.gain.setValueAtTime(0.8 * volumeMultiplier, time);
         gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.4);
         break;
       case 'lowtom':
         osc.frequency.setValueAtTime(120, time);
         osc.frequency.exponentialRampToValueAtTime(Math.max(MIN_FREQ, 20), time + 0.5);
-        gain.gain.setValueAtTime(0.85, time);
+        gain.gain.setValueAtTime(0.85 * volumeMultiplier, time);
         gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.5);
         break;
       case 'rim':
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(800, time);
-        gain.gain.setValueAtTime(0.4, time);
+        gain.gain.setValueAtTime(0.4 * volumeMultiplier, time);
         gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.08);
         break;
       case 'cowbell':
@@ -370,7 +449,7 @@ export default function DrumMachine() {
         osc.frequency.setValueAtTime(540, time);
         filter.type = 'bandpass';
         filter.frequency.setValueAtTime(800, time);
-        gain.gain.setValueAtTime(0.5, time);
+        gain.gain.setValueAtTime(0.5 * volumeMultiplier, time);
         gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.15);
         break;
       case 'crash':
@@ -378,7 +457,7 @@ export default function DrumMachine() {
         osc.frequency.setValueAtTime(450, time);
         filter.type = 'highpass';
         filter.frequency.setValueAtTime(3000, time);
-        gain.gain.setValueAtTime(0.4, time);
+        gain.gain.setValueAtTime(0.4 * volumeMultiplier, time);
         gain.gain.exponentialRampToValueAtTime(MIN_GAIN, time + 0.8);
         break;
     }
@@ -390,7 +469,7 @@ export default function DrumMachine() {
     osc.onended = () => {
       activeOscillatorsRef.current.delete(osc);
     };
-  }, []);
+  }, [instrumentSettings]);
 
   // Sequencer scheduler
   const scheduler = useCallback(() => {
@@ -410,7 +489,7 @@ export default function DrumMachine() {
       // Schedule sounds for this step
       currentPattern.forEach((drumPattern, drumIndex) => {
         if (drumPattern[step]) {
-          playSound(DRUM_SOUNDS[drumIndex].id, nextStepTimeRef.current);
+          playSound(DRUM_SOUNDS[drumIndex].id, nextStepTimeRef.current, drumIndex);
         }
       });
 
@@ -921,7 +1000,14 @@ export default function DrumMachine() {
           <div className="min-w-[800px]">
             {DRUM_SOUNDS.map((drum, drumIndex) => (
               <div key={drum.id} className="flex items-center gap-2 mb-3">
-                <div className="w-20 font-semibold text-sm">{drum.name}</div>
+                <button
+                  onClick={() => setSelectedInstrument(selectedInstrument === drumIndex ? null : drumIndex)}
+                  className={`w-20 font-semibold text-sm text-left px-2 py-1 rounded transition-colors ${
+                    selectedInstrument === drumIndex ? 'bg-purple-600' : 'hover:bg-gray-700'
+                  }`}
+                >
+                  {drum.name}
+                </button>
                 <div className="flex gap-1 flex-1">
                   {Array.from({ length: STEPS }).map((_, step) => (
                     <button
@@ -941,6 +1027,89 @@ export default function DrumMachine() {
             ))}
           </div>
         </div>
+
+        {/* Individual Instrument Controls */}
+        {selectedInstrument !== null && (
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-6 mb-6">
+            <h2 className="text-2xl font-bold mb-4 text-purple-300">
+              {DRUM_SOUNDS[selectedInstrument].name} Settings
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="font-semibold">Volume</span>
+                  <span className="text-sm text-gray-400">{instrumentSettings[selectedInstrument].volume}%</span>
+                </label>
+                <input
+                  type="range"
+                  value={instrumentSettings[selectedInstrument].volume}
+                  onChange={(e) => {
+                    const newSettings = [...instrumentSettings];
+                    newSettings[selectedInstrument].volume = parseInt(e.target.value);
+                    setInstrumentSettings(newSettings);
+                  }}
+                  min="0"
+                  max="200"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="font-semibold">Reverb</span>
+                  <span className="text-sm text-gray-400">{instrumentSettings[selectedInstrument].reverb}%</span>
+                </label>
+                <input
+                  type="range"
+                  value={instrumentSettings[selectedInstrument].reverb}
+                  onChange={(e) => {
+                    const newSettings = [...instrumentSettings];
+                    newSettings[selectedInstrument].reverb = parseInt(e.target.value);
+                    setInstrumentSettings(newSettings);
+                  }}
+                  min="0"
+                  max="100"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="font-semibold">Delay</span>
+                  <span className="text-sm text-gray-400">{instrumentSettings[selectedInstrument].delay}%</span>
+                </label>
+                <input
+                  type="range"
+                  value={instrumentSettings[selectedInstrument].delay}
+                  onChange={(e) => {
+                    const newSettings = [...instrumentSettings];
+                    newSettings[selectedInstrument].delay = parseInt(e.target.value);
+                    setInstrumentSettings(newSettings);
+                  }}
+                  min="0"
+                  max="100"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="font-semibold">Distortion</span>
+                  <span className="text-sm text-gray-400">{instrumentSettings[selectedInstrument].distortion}%</span>
+                </label>
+                <input
+                  type="range"
+                  value={instrumentSettings[selectedInstrument].distortion}
+                  onChange={(e) => {
+                    const newSettings = [...instrumentSettings];
+                    newSettings[selectedInstrument].distortion = parseInt(e.target.value);
+                    setInstrumentSettings(newSettings);
+                  }}
+                  min="0"
+                  max="100"
+                  className="w-full"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Save Dialog Modal */}
         {showSaveDialog && (
@@ -1064,6 +1233,10 @@ export default function DrumMachine() {
     </div>
   );
 }
+
+
+
+
 
 
 
